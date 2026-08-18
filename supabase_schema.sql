@@ -40,20 +40,30 @@ create index if not exists habit_logs_habit_date_idx on habit_logs (habit_id, lo
 alter table habits enable row level security;
 alter table habit_logs enable row level security;
 
+-- drop antes de criar deixa o script seguro de rodar mais de uma vez
+-- (create policy sozinho não suporta "if not exists")
+drop policy if exists "public read habits" on habits;
 create policy "public read habits" on habits
   for select using (true);
+drop policy if exists "public write habits" on habits;
 create policy "public write habits" on habits
   for insert with check (true);
+drop policy if exists "public update habits" on habits;
 create policy "public update habits" on habits
   for update using (true);
+drop policy if exists "public delete habits" on habits;
 create policy "public delete habits" on habits
   for delete using (true);
 
+drop policy if exists "public read habit_logs" on habit_logs;
 create policy "public read habit_logs" on habit_logs
   for select using (true);
+drop policy if exists "public write habit_logs" on habit_logs;
 create policy "public write habit_logs" on habit_logs
   for insert with check (true);
+drop policy if exists "public update habit_logs" on habit_logs;
 create policy "public update habit_logs" on habit_logs
   for update using (true);
+drop policy if exists "public delete habit_logs" on habit_logs;
 create policy "public delete habit_logs" on habit_logs
   for delete using (true);
