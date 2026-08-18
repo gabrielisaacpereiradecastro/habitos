@@ -518,8 +518,6 @@
       const done = set.has(selectedDate);
       const color = escapeHtml(h.color || DEFAULT_COLOR);
       const { streakLabel, rateLabel } = habitStats(h, set);
-      const createdDateStr = h.created_at ? dateToStr(new Date(h.created_at)) : null;
-      const beforeCreation = createdDateStr && selectedDate < createdDateStr;
       return `
       <div class="card habit-row" data-id="${h.id}" style="border-left:4px solid ${color};">
         <div class="emoji">${escapeHtml(h.emoji || "✅")}</div>
@@ -532,7 +530,7 @@
           <button class="edit-btn" data-move="down" data-id="${h.id}" ${idx === habits.length - 1 ? "disabled" : ""}>▼</button>
         ` : `
           <button class="edit-btn" data-edit="${h.id}">✏️</button>
-          <button class="check-toggle ${done ? "done" : ""}" data-toggle="${h.id}" data-color="${color}" ${beforeCreation ? "disabled" : ""}
+          <button class="check-toggle ${done ? "done" : ""}" data-toggle="${h.id}" data-color="${color}"
             style="border-color:${color}; ${done ? `background:${color};` : ""}">✓</button>
         `}
       </div>`;
@@ -798,9 +796,8 @@
         const ds = dateToStr(date);
         const x = w * step, y = d * step + 16;
         const isFuture = date > today;
-        const isBeforeCreation = createdAt && date < new Date(createdAt.getFullYear(), createdAt.getMonth(), createdAt.getDate());
         let fill, extra = "";
-        if (isFuture || isBeforeCreation) {
+        if (isFuture) {
           fill = "transparent";
         } else if (logSet.has(ds)) {
           fill = color;
@@ -808,7 +805,7 @@
           fill = "var(--gridline)";
         }
         if (ds === todayStr()) extra = `stroke="var(--text-primary)" stroke-width="2"`;
-        const clickable = !isFuture && !isBeforeCreation;
+        const clickable = !isFuture;
         cells += `<rect class="cell" data-date="${ds}" data-done="${logSet.has(ds)}" x="${x}" y="${y}" width="${cell}" height="${cell}" rx="3" fill="${fill}" ${extra} ${clickable ? "" : 'pointer-events="none"'} />`;
       }
     }
