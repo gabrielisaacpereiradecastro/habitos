@@ -180,6 +180,28 @@
 
   .edit-btn:disabled { opacity: 0.3; }
   .habit-row .info.no-pointer { cursor: default; }
+  .check-toggle:disabled { opacity: 0.25; cursor: default; }
+
+  .date-strip { display: flex; align-items: center; gap: 2px; margin: 4px 0 16px; }
+  .date-strip .nav-btn {
+    background: none; border: none; color: var(--text-muted); font-size: 18px;
+    padding: 6px 4px; cursor: pointer; flex-shrink: 0;
+  }
+  .date-strip .nav-btn:disabled { opacity: 0.25; cursor: default; }
+  .date-strip .days { display: flex; flex: 1; justify-content: space-between; }
+  .date-day {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    cursor: pointer; padding: 2px 0; flex: 1; -webkit-tap-highlight-color: transparent;
+  }
+  .date-day .dow { font-size: 11px; color: var(--text-muted); }
+  .date-day .num {
+    width: 30px; height: 30px; border-radius: 999px; display: flex; align-items: center;
+    justify-content: center; font-size: 13px; font-weight: 600; color: var(--text-primary);
+    border: 1.5px solid transparent;
+  }
+  .date-day.today .num { border-color: var(--series-1); }
+  .date-day.selected .num { background: var(--series-1); border-color: var(--series-1); color: #fff; }
+  .date-day.future { opacity: 0.3; cursor: default; }
 
   .color-swatches { display: flex; flex-wrap: wrap; gap: 10px; }
   .swatch {
@@ -423,24 +445,58 @@
 
   /* ============================= HOME ============================= */
   let reorderMode = false;
+  let selectedDate = todayStr();
+
+  function dateStripHtml() {
+    const todayS = todayStr();
+    const sunday = addDays(strToDate(selectedDate), -strToDate(selectedDate).getDay());
+    const prevBoundary = addDays(strToDate(todayS), -(DAYS - 7));
+    let days = "";
+    for (let i = 0; i < 7; i++) {
+      const d = addDays(sunday, i);
+      const ds = dateToStr(d);
+      const isFuture = ds > todayS;
+      const isSelected = ds === selectedDate;
+      const isToday = ds === todayS;
+      const cls = ["date-day", isSelected ? "selected" : "", isToday ? "today" : "", isFuture ? "future" : ""].filter(Boolean).join(" ");
+      days += `<div class="${cls}" ${isFuture ? "" : `data-date="${ds}"`}>
+        <div class="dow">${WEEKDAYS_SHORT[d.getDay()]}</div>
+        <div class="num">${d.getDate()}</div>
+      </div>`;
+    }
+    const prevDisabled = sunday <= prevBoundary;
+    return `
+      <div class="date-strip">
+        <button class="nav-btn" id="date-prev" ${prevDisabled ? "disabled" : ""}>‹</button>
+        <div class="days">${days}</div>
+        <button class="nav-btn" id="date-next">›</button>
+      </div>
+    `;
+  }
 
   async function renderHome() {
     $app.innerHTML = `
       <header class="topbar">
         <div>
           <div class="title">Hábitos</div>
-          <div class="subtitle">${escapeHtml(fmtLong(new Date()))}</div>
+          <div class="subtitle">${escapeHtml(fmtLong(strToDate(selectedDate)))}</div>
         </div>
         <div style="display:flex; gap:8px;">
           <button class="icon-btn" id="reorder-btn" title="Reordenar hábitos">${reorderMode ? "✓" : "↕️"}</button>
           <button class="icon-btn" onclick="location.hash='#/settings'">⚙️</button>
         </div>
       </header>
+      ${dateStripHtml()}
       <div id="list">Carregando…</div>
       <button class="fab" id="add-fab">+</button>
     `;
     document.getElementById("add-fab").onclick = () => openHabitModal();
     document.getElementById("reorder-btn").onclick = () => { reorderMode = !reorderMode; renderHome(); };
+    document.getElementById("date-prev").onclick = () => { selectedDate = dateToStr(addDays(strToDate(selectedDate), -7)); renderHome(); };
+    document.getElementById("date-next").onclick = () => { selectedDate = dateToStr(addDays(strToDate(selectedDate), 7)); renderHome(); };
+    document.querySelectorAll(".date-day[data-date]").forEach(el => {
+      el.onclick = () => { selectedDate = el.dataset.date; renderHome(); };
+    });
 
     let habits, logs;
     try {
@@ -457,12 +513,13 @@
         Nenhum hábito ainda.<br/>Toque no + para adicionar o primeiro.</div>`;
       return;
     }
-    const today = todayStr();
     list.innerHTML = habits.map((h, idx) => {
       const set = logs[h.id] || new Set();
-      const done = set.has(today);
+      const done = set.has(selectedDate);
       const color = escapeHtml(h.color || DEFAULT_COLOR);
       const { streakLabel, rateLabel } = habitStats(h, set);
+      const createdDateStr = h.created_at ? dateToStr(new Date(h.created_at)) : null;
+      const beforeCreation = createdDateStr && selectedDate < createdDateStr;
       return `
       <div class="card habit-row" data-id="${h.id}" style="border-left:4px solid ${color};">
         <div class="emoji">${escapeHtml(h.emoji || "✅")}</div>
@@ -475,7 +532,7 @@
           <button class="edit-btn" data-move="down" data-id="${h.id}" ${idx === habits.length - 1 ? "disabled" : ""}>▼</button>
         ` : `
           <button class="edit-btn" data-edit="${h.id}">✏️</button>
-          <button class="check-toggle ${done ? "done" : ""}" data-toggle="${h.id}" data-color="${color}"
+          <button class="check-toggle ${done ? "done" : ""}" data-toggle="${h.id}" data-color="${color}" ${beforeCreation ? "disabled" : ""}
             style="border-color:${color}; ${done ? `background:${color};` : ""}">✓</button>
         `}
       </div>`;
@@ -521,9 +578,9 @@
         el.classList.toggle("done", willBeDone);
         el.style.background = willBeDone ? el.dataset.color : "transparent";
         try {
-          await toggleLog(id, today, willBeDone);
+          await toggleLog(id, selectedDate, willBeDone);
           const set = logs[id] || (logs[id] = new Set());
-          if (willBeDone) set.add(today); else set.delete(today);
+          if (willBeDone) set.add(selectedDate); else set.delete(selectedDate);
           updateRowMeta(id, habits.find(x => x.id === id), set);
         } catch (err) {
           el.classList.toggle("done", !willBeDone);
