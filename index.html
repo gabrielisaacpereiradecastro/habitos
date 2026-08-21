@@ -293,6 +293,10 @@
   /* ============================= CONFIG ============================= */
   const SUPABASE_URL = "https://skrbznskktophlwdfkci.supabase.co";
   const SUPABASE_ANON_KEY = "sb_publishable_cEp3tBod3WgWo0k543WG6g_qJcKWgJB";
+  // fixa (em vez de derivar de location.pathname) porque o app instalado na tela de
+  // início abre em ".../habitos/index.html", diferente da URL cadastrada nas Redirect
+  // URLs do Supabase (".../habitos/") — isso fazia o login cair no fallback errado
+  const APP_URL = "https://gabrielisaacpereiradecastro.github.io/habitos/";
 
   let sb = null;
   function client() {
@@ -310,7 +314,7 @@
   async function signInWithGoogle() {
     const { error } = await client().auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: location.origin + location.pathname },
+      options: { redirectTo: APP_URL },
     });
     if (error) throw error;
   }
