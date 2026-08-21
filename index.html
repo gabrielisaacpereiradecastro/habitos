@@ -230,6 +230,57 @@
   }
 
   a { color: var(--series-1); }
+
+  /* ---------- fotos de progresso ---------- */
+  .photo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .photo-slot {
+    aspect-ratio: 3/4; border-radius: 12px; overflow: hidden; position: relative;
+    background: var(--surface-2); border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+  }
+  .photo-slot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .photo-slot .placeholder { color: var(--text-muted); font-size: 12px; text-align: center; padding: 8px; }
+  .photo-slot .angle-label {
+    position: absolute; left: 6px; bottom: 6px; font-size: 11px; font-weight: 600;
+    background: rgba(0,0,0,0.55); color: #fff; padding: 2px 7px; border-radius: 999px;
+  }
+  .photo-slot input[type="file"] { display: none; }
+
+  .checkin-row { padding: 12px 14px; margin-bottom: 10px; }
+  .checkin-row .head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .checkin-row .date { font-size: 14px; font-weight: 600; }
+  .checkin-row .metrics { font-size: 12.5px; color: var(--text-secondary); }
+  .checkin-row .thumbs { display: flex; gap: 6px; }
+  .checkin-row .thumbs .t {
+    width: 52px; height: 68px; border-radius: 8px; overflow: hidden;
+    background: var(--surface-2); border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center; font-size: 9px; color: var(--text-muted);
+  }
+  .checkin-row .thumbs img { width: 100%; height: 100%; object-fit: cover; }
+  .checkin-row .del-btn { background: none; border: none; color: var(--text-muted); font-size: 15px; cursor: pointer; padding: 4px; }
+
+  .angle-tabs { display: flex; gap: 6px; margin-bottom: 14px; }
+  .angle-tabs button {
+    flex: 1; padding: 8px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--text-secondary); font-size: 13px; cursor: pointer;
+  }
+  .angle-tabs button.active { background: var(--series-1); border-color: var(--series-1); color: #fff; }
+
+  .player-frame {
+    width: 100%; aspect-ratio: 3/4; border-radius: 16px; overflow: hidden;
+    background: var(--surface-2); border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center; position: relative;
+  }
+  .player-frame img { width: 100%; height: 100%; object-fit: cover; }
+  .player-frame .empty { color: var(--text-muted); font-size: 13px; text-align: center; padding: 20px; }
+  .player-frame .date-badge {
+    position: absolute; top: 10px; left: 10px; font-size: 12px; font-weight: 600;
+    background: rgba(0,0,0,0.55); color: #fff; padding: 3px 9px; border-radius: 999px;
+  }
+  .player-controls { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+  .player-controls .icon-btn { flex-shrink: 0; }
+  .player-controls input[type="range"] { flex: 1; }
+  .speed-label { font-size: 12px; color: var(--text-secondary); min-width: 46px; text-align: right; }
 </style>
 </head>
 <body>
@@ -313,6 +364,8 @@
     const h = location.hash.replace(/^#\/?/, "");
     if (h.startsWith("habit/")) return { name: "detail", id: h.slice(6) };
     if (h === "settings") return { name: "settings" };
+    if (h === "photos") return { name: "photos" };
+    if (h.startsWith("photos/player")) return { name: "photo-player" };
     return { name: "home" };
   }
 
@@ -321,6 +374,8 @@
     const r = route();
     if (r.name === "settings") return renderSettings();
     if (r.name === "detail") return renderDetail(r.id);
+    if (r.name === "photos") return renderPhotos();
+    if (r.name === "photo-player") return renderPhotoPlayer();
     return renderHome();
   }
 
@@ -408,6 +463,78 @@
   }
   async function deleteHabit(id) {
     const { error } = await client().from("habits").delete().eq("id", id);
+    if (error) throw error;
+  }
+
+  /* ============================= BODY CHECKINS (fotos) ============================= */
+  const PHOTO_BUCKET = "body-photos";
+  const ANGLES = [
+    { key: "front", label: "Frente" },
+    { key: "back", label: "Costas" },
+    { key: "left", label: "Esquerda" },
+    { key: "right", label: "Direita" },
+  ];
+
+  // redimensiona pro lado maior ter no máx 1080px antes de subir, economiza espaço/banda
+  function compressImage(file) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const reader = new FileReader();
+      reader.onload = () => { img.src = reader.result; };
+      reader.onerror = reject;
+      img.onload = () => {
+        const maxSide = 1080;
+        const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+        const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("Falha ao comprimir imagem")), "image/jpeg", 0.82);
+      };
+      img.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function uploadCheckinPhoto(dateStr, angleKey, file) {
+    const blob = await compressImage(file);
+    const path = `${currentUser.id}/${dateStr}/${angleKey}.jpg`;
+    const { error } = await client().storage.from(PHOTO_BUCKET)
+      .upload(path, blob, { upsert: true, contentType: "image/jpeg" });
+    if (error) throw error;
+    return path;
+  }
+
+  const signedUrlCache = new Map();
+  async function getSignedUrl(path) {
+    if (!path) return null;
+    if (signedUrlCache.has(path)) return signedUrlCache.get(path);
+    const { data, error } = await client().storage.from(PHOTO_BUCKET).createSignedUrl(path, 3600);
+    if (error) throw error;
+    signedUrlCache.set(path, data.signedUrl);
+    return data.signedUrl;
+  }
+
+  async function fetchCheckins() {
+    const { data, error } = await client()
+      .from("body_checkins").select("*").order("checkin_date", { ascending: false });
+    if (error) throw error;
+    return data || [];
+  }
+
+  async function upsertCheckin(dateStr, fields) {
+    const { data, error } = await client()
+      .from("body_checkins")
+      .upsert({ user_id: currentUser.id, checkin_date: dateStr, ...fields }, { onConflict: "user_id,checkin_date" })
+      .select().single();
+    if (error) throw error;
+    return data;
+  }
+
+  async function deleteCheckin(checkin) {
+    const paths = ANGLES.map(a => checkin[`photo_${a.key}`]).filter(Boolean);
+    if (paths.length) await client().storage.from(PHOTO_BUCKET).remove(paths);
+    const { error } = await client().from("body_checkins").delete().eq("id", checkin.id);
     if (error) throw error;
   }
 
@@ -509,6 +636,7 @@
         </div>
         <div style="display:flex; gap:8px;">
           <button class="icon-btn" id="reorder-btn" title="Reordenar hábitos">${reorderMode ? "✓" : "↕️"}</button>
+          <button class="icon-btn" onclick="location.hash='#/photos'" title="Fotos de progresso">📷</button>
           <button class="icon-btn" onclick="location.hash='#/settings'">⚙️</button>
         </div>
       </header>
@@ -978,6 +1106,256 @@
         catch (e) { alert("Não deu pra excluir: " + e.message); }
       };
     });
+  }
+
+  /* ============================= FOTOS ============================= */
+  async function renderPhotos() {
+    $app.innerHTML = `
+      <button class="back-btn" onclick="location.hash='#/'">‹ Voltar</button>
+      <header class="topbar">
+        <div class="title">Fotos</div>
+        <button class="icon-btn" onclick="location.hash='#/photos/player'" title="Ver evolução">▶️</button>
+      </header>
+      <div id="checkins-list">Carregando…</div>
+      <button class="fab" id="add-checkin-fab">+</button>
+    `;
+    document.getElementById("add-checkin-fab").onclick = () => openCheckinModal();
+
+    let checkins;
+    try { checkins = await fetchCheckins(); }
+    catch (e) { document.getElementById("checkins-list").innerHTML = errorBox(e); return; }
+
+    const list = document.getElementById("checkins-list");
+    if (!checkins.length) {
+      list.innerHTML = `<div class="empty-state"><div class="big">📷</div>
+        Nenhum registro ainda.<br/>Toque no + pra adicionar fotos e medidas.</div>`;
+      return;
+    }
+
+    list.innerHTML = checkins.map(c => {
+      const metrics = [
+        c.weight_kg != null ? `${c.weight_kg} kg` : null,
+        c.body_fat_pct != null ? `${c.body_fat_pct}% gordura` : null,
+      ].filter(Boolean).join(" · ");
+      const thumbs = ANGLES.map(a => {
+        const path = c[`photo_${a.key}`] || "";
+        return `<div class="t" data-thumb data-path="${escapeHtml(path)}">${path ? "" : a.label[0]}</div>`;
+      }).join("");
+      return `
+      <div class="card checkin-row" data-id="${c.id}">
+        <div class="head">
+          <div>
+            <div class="date">${escapeHtml(fmtLong(strToDate(c.checkin_date)))}</div>
+            ${metrics ? `<div class="metrics">${escapeHtml(metrics)}</div>` : ""}
+          </div>
+          <div style="display:flex; gap:4px;">
+            <button class="edit-btn" data-edit="${c.id}">✏️</button>
+            <button class="del-btn" data-del="${c.id}">🗑️</button>
+          </div>
+        </div>
+        <div class="thumbs">${thumbs}</div>
+      </div>`;
+    }).join("");
+
+    list.querySelectorAll("[data-thumb]").forEach((el) => {
+      const path = el.dataset.path;
+      if (!path) return;
+      getSignedUrl(path).then(url => { el.innerHTML = `<img src="${url}" />`; }).catch(() => {});
+    });
+
+    list.querySelectorAll("[data-edit]").forEach(el => {
+      el.onclick = () => { const c = checkins.find(x => x.id === el.dataset.edit); openCheckinModal(c); };
+    });
+    list.querySelectorAll("[data-del]").forEach(el => {
+      el.onclick = async () => {
+        const c = checkins.find(x => x.id === el.dataset.del);
+        if (!confirm(`Excluir o registro de ${fmtLong(strToDate(c.checkin_date))}? Não dá pra desfazer.`)) return;
+        try { await deleteCheckin(c); renderPhotos(); }
+        catch (e) { alert("Não deu pra excluir: " + e.message); }
+      };
+    });
+  }
+
+  function openCheckinModal(checkin) {
+    const isEdit = !!checkin;
+    const dateVal = checkin ? checkin.checkin_date : todayStr();
+    const pendingFiles = {};
+    const existingPaths = {};
+    ANGLES.forEach(a => { existingPaths[a.key] = checkin ? (checkin[`photo_${a.key}`] || null) : null; });
+
+    const overlay = document.createElement("div");
+    overlay.className = "overlay";
+    overlay.innerHTML = `
+      <div class="sheet">
+        <h2>${isEdit ? "Editar registro" : "Novo registro"}</h2>
+        <div class="field">
+          <label>Data</label>
+          <input id="ck-date" type="date" value="${dateVal}" max="${todayStr()}" />
+        </div>
+        <div class="photo-grid" id="ck-photo-grid" style="margin-bottom:14px;">
+          ${ANGLES.map(a => `
+            <label class="photo-slot" data-angle="${a.key}">
+              <div class="placeholder">+ ${a.label}</div>
+              <div class="angle-label">${a.label}</div>
+              <input type="file" accept="image/*" capture="environment" data-angle-input="${a.key}" />
+            </label>
+          `).join("")}
+        </div>
+        <div style="display:flex; gap:10px;">
+          <div class="field" style="flex:1">
+            <label>Peso (kg)</label>
+            <input id="ck-weight" type="number" step="0.1" inputmode="decimal" placeholder="Ex: 78.5" value="${checkin?.weight_kg ?? ""}" />
+          </div>
+          <div class="field" style="flex:1">
+            <label>% gordura</label>
+            <input id="ck-fat" type="number" step="0.1" inputmode="decimal" placeholder="Ex: 18.2" value="${checkin?.body_fat_pct ?? ""}" />
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-secondary" id="ck-cancel">Cancelar</button>
+          <button class="btn btn-primary" id="ck-save">Salvar</button>
+        </div>
+        ${isEdit ? `<button class="btn btn-danger" id="ck-delete" style="width:100%;margin-top:10px;">Excluir registro</button>` : ""}
+      </div>`;
+    document.body.appendChild(overlay);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+    document.getElementById("ck-cancel").onclick = () => overlay.remove();
+
+    ANGLES.forEach((a) => {
+      const path = existingPaths[a.key];
+      if (!path) return;
+      getSignedUrl(path).then(url => {
+        const slot = overlay.querySelector(`.photo-slot[data-angle="${a.key}"]`);
+        const ph = slot && slot.querySelector(".placeholder");
+        if (ph) ph.outerHTML = `<img src="${url}" />`;
+      }).catch(() => {});
+    });
+
+    overlay.querySelectorAll("[data-angle-input]").forEach(input => {
+      input.onchange = () => {
+        const file = input.files[0];
+        if (!file) return;
+        pendingFiles[input.dataset.angleInput] = file;
+        const slot = input.closest(".photo-slot");
+        const url = URL.createObjectURL(file);
+        const existingImg = slot.querySelector("img");
+        const placeholder = slot.querySelector(".placeholder");
+        if (existingImg) existingImg.src = url;
+        else if (placeholder) placeholder.outerHTML = `<img src="${url}" />`;
+      };
+    });
+
+    document.getElementById("ck-save").onclick = async () => {
+      const dateStr = document.getElementById("ck-date").value;
+      if (!dateStr) { alert("Escolhe uma data."); return; }
+      const weightVal = document.getElementById("ck-weight").value.trim();
+      const fatVal = document.getElementById("ck-fat").value.trim();
+      const hasAnyPhoto = ANGLES.some(a => pendingFiles[a.key] || existingPaths[a.key]);
+      if (!hasAnyPhoto) { alert("Adiciona pelo menos uma foto."); return; }
+
+      const saveBtn = document.getElementById("ck-save");
+      saveBtn.disabled = true; saveBtn.textContent = "Salvando…";
+      try {
+        const fields = {
+          weight_kg: weightVal ? Number(weightVal) : null,
+          body_fat_pct: fatVal ? Number(fatVal) : null,
+        };
+        for (const a of ANGLES) {
+          if (pendingFiles[a.key]) fields[`photo_${a.key}`] = await uploadCheckinPhoto(dateStr, a.key, pendingFiles[a.key]);
+          else if (existingPaths[a.key]) fields[`photo_${a.key}`] = existingPaths[a.key];
+        }
+        await upsertCheckin(dateStr, fields);
+        if (isEdit && checkin.checkin_date !== dateStr) {
+          await client().from("body_checkins").delete().eq("id", checkin.id);
+        }
+        overlay.remove();
+        renderPhotos();
+      } catch (e) {
+        alert("Não deu pra salvar: " + e.message);
+        saveBtn.disabled = false; saveBtn.textContent = "Salvar";
+      }
+    };
+
+    if (isEdit) {
+      document.getElementById("ck-delete").onclick = async () => {
+        if (!confirm(`Excluir o registro de ${fmtLong(strToDate(checkin.checkin_date))}? Não dá pra desfazer.`)) return;
+        try { await deleteCheckin(checkin); overlay.remove(); renderPhotos(); }
+        catch (e) { alert("Não deu pra excluir: " + e.message); }
+      };
+    }
+  }
+
+  /* ---------- player de evolução ---------- */
+  let playerAngle = "front";
+  let playerFrameIndex = 0;
+  let playerTimer = null;
+  let playerFps = 2;
+
+  function stopPlayer() {
+    if (playerTimer) { clearInterval(playerTimer); playerTimer = null; }
+  }
+
+  async function renderPhotoPlayer() {
+    stopPlayer();
+    $app.innerHTML = `
+      <button class="back-btn" onclick="location.hash='#/photos'">‹ Voltar</button>
+      <header class="topbar"><div class="title">Evolução</div></header>
+      <div class="angle-tabs" id="angle-tabs">
+        ${ANGLES.map(a => `<button data-angle="${a.key}" class="${a.key === playerAngle ? "active" : ""}">${a.label}</button>`).join("")}
+      </div>
+      <div class="player-frame" id="player-frame"><div class="empty">Carregando…</div></div>
+      <div class="player-controls">
+        <button class="icon-btn" id="player-playpause">▶️</button>
+        <input type="range" id="player-speed" min="1" max="8" step="1" value="${playerFps}" />
+        <div class="speed-label" id="speed-label">${playerFps} fps</div>
+      </div>
+    `;
+    document.getElementById("angle-tabs").querySelectorAll("[data-angle]").forEach(btn => {
+      btn.onclick = () => { playerAngle = btn.dataset.angle; playerFrameIndex = 0; renderPhotoPlayer(); };
+    });
+
+    let checkins;
+    try { checkins = await fetchCheckins(); }
+    catch (e) { document.getElementById("player-frame").innerHTML = `<div class="empty">Erro: ${escapeHtml(e.message)}</div>`; return; }
+
+    const frames = checkins
+      .filter(c => c[`photo_${playerAngle}`])
+      .sort((a, b) => a.checkin_date < b.checkin_date ? -1 : 1);
+
+    const frameEl = document.getElementById("player-frame");
+    const playBtn = document.getElementById("player-playpause");
+    if (!frames.length) {
+      frameEl.innerHTML = `<div class="empty">Nenhuma foto desse ângulo ainda.</div>`;
+      playBtn.disabled = true;
+      return;
+    }
+
+    const urls = await Promise.all(frames.map(f => getSignedUrl(f[`photo_${playerAngle}`])));
+
+    function paint() {
+      const i = playerFrameIndex % frames.length;
+      frameEl.innerHTML = `<img src="${urls[i]}" /><div class="date-badge">${escapeHtml(fmtLong(strToDate(frames[i].checkin_date)))}</div>`;
+    }
+    paint();
+
+    function start() {
+      stopPlayer();
+      playerTimer = setInterval(() => {
+        if (!document.body.contains(frameEl)) { stopPlayer(); return; }
+        playerFrameIndex = (playerFrameIndex + 1) % frames.length;
+        paint();
+      }, 1000 / playerFps);
+    }
+
+    document.getElementById("player-speed").oninput = (e) => {
+      playerFps = Number(e.target.value);
+      document.getElementById("speed-label").textContent = `${playerFps} fps`;
+      if (playerTimer) start();
+    };
+    playBtn.onclick = () => {
+      if (playerTimer) { stopPlayer(); playBtn.textContent = "▶️"; }
+      else { start(); playBtn.textContent = "⏸️"; }
+    };
   }
 })();
 </script>
