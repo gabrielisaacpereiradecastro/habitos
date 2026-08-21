@@ -1,10 +1,17 @@
 -- Habit tracker — schema para rodar no SQL Editor do Supabase
 -- (Project > SQL Editor > New query > cole tudo isso > Run)
+--
+-- Este schema já assume login com Google (Supabase Auth): cada hábito e
+-- cada log pertence a um user_id, e as policies só liberam acesso ao dono.
+-- Se você está migrando um banco criado ANTES do login existir, use
+-- supabase_migration_login.sql em vez de rodar este arquivo inteiro de novo
+-- (ele preserva o histórico e evita mexer nas policies já em uso).
 
 create extension if not exists "pgcrypto";
 
 create table if not exists habits (
   id               uuid primary key default gen_random_uuid(),
+  user_id          uuid references auth.users(id) on delete cascade,
   name             text not null,
   emoji            text not null default '✅',
   sort_order       integer not null default 0,
@@ -18,52 +25,51 @@ create table if not exists habits (
 -- existirem (rodar de novo aqui é seguro, não faz nada se já existirem)
 alter table habits add column if not exists target_per_week integer not null default 7;
 alter table habits add column if not exists color text not null default '#2a78d6';
+alter table habits add column if not exists user_id uuid references auth.users(id) on delete cascade;
 
 create table if not exists habit_logs (
   id          uuid primary key default gen_random_uuid(),
   habit_id    uuid not null references habits(id) on delete cascade,
+  user_id     uuid references auth.users(id) on delete cascade,
   log_date    date not null,
   created_at  timestamptz not null default now(),
   unique (habit_id, log_date)
 );
 
+alter table habit_logs add column if not exists user_id uuid references auth.users(id) on delete cascade;
+
 create index if not exists habit_logs_habit_date_idx on habit_logs (habit_id, log_date);
+create index if not exists habits_user_id_idx on habits (user_id);
+create index if not exists habit_logs_user_id_idx on habit_logs (user_id);
 
 -- Row Level Security -------------------------------------------------------
--- Este app usa a "anon key" pública do Supabase direto no navegador, sem
--- login. Isso é OK para um tracker pessoal (ninguém vai adivinhar a URL do
--- seu projeto), mas tecnicamente qualquer pessoa com a URL + anon key
--- consegue ler/escrever nessas duas tabelas. Se um dia você quiser travar
--- isso de verdade, o próximo passo é adicionar Supabase Auth (login por
--- e-mail) e trocar as policies abaixo para `using (auth.uid() = user_id)`.
+-- Cada hábito/log só é visível e editável pelo próprio dono (auth.uid()).
 
 alter table habits enable row level security;
 alter table habit_logs enable row level security;
 
--- drop antes de criar deixa o script seguro de rodar mais de uma vez
--- (create policy sozinho não suporta "if not exists")
-drop policy if exists "public read habits" on habits;
-create policy "public read habits" on habits
-  for select using (true);
-drop policy if exists "public write habits" on habits;
-create policy "public write habits" on habits
-  for insert with check (true);
-drop policy if exists "public update habits" on habits;
-create policy "public update habits" on habits
-  for update using (true);
-drop policy if exists "public delete habits" on habits;
-create policy "public delete habits" on habits
-  for delete using (true);
+drop policy if exists "habits_select_own" on habits;
+create policy "habits_select_own" on habits
+  for select using (user_id = auth.uid());
+drop policy if exists "habits_insert_own" on habits;
+create policy "habits_insert_own" on habits
+  for insert with check (user_id = auth.uid());
+drop policy if exists "habits_update_own" on habits;
+create policy "habits_update_own" on habits
+  for update using (user_id = auth.uid());
+drop policy if exists "habits_delete_own" on habits;
+create policy "habits_delete_own" on habits
+  for delete using (user_id = auth.uid());
 
-drop policy if exists "public read habit_logs" on habit_logs;
-create policy "public read habit_logs" on habit_logs
-  for select using (true);
-drop policy if exists "public write habit_logs" on habit_logs;
-create policy "public write habit_logs" on habit_logs
-  for insert with check (true);
-drop policy if exists "public update habit_logs" on habit_logs;
-create policy "public update habit_logs" on habit_logs
-  for update using (true);
-drop policy if exists "public delete habit_logs" on habit_logs;
-create policy "public delete habit_logs" on habit_logs
-  for delete using (true);
+drop policy if exists "habit_logs_select_own" on habit_logs;
+create policy "habit_logs_select_own" on habit_logs
+  for select using (user_id = auth.uid());
+drop policy if exists "habit_logs_insert_own" on habit_logs;
+create policy "habit_logs_insert_own" on habit_logs
+  for insert with check (user_id = auth.uid());
+drop policy if exists "habit_logs_update_own" on habit_logs;
+create policy "habit_logs_update_own" on habit_logs
+  for update using (user_id = auth.uid());
+drop policy if exists "habit_logs_delete_own" on habit_logs;
+create policy "habit_logs_delete_own" on habit_logs
+  for delete using (user_id = auth.uid());

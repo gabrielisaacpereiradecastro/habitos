@@ -240,25 +240,32 @@
   "use strict";
 
   /* ============================= CONFIG ============================= */
-  const CFG_KEY = "habitos_supabase_cfg";
-  function getConfig() {
-    try { return JSON.parse(localStorage.getItem(CFG_KEY) || "null"); }
-    catch (e) { return null; }
-  }
-  function setConfig(url, anonKey) {
-    localStorage.setItem(CFG_KEY, JSON.stringify({ url, anonKey }));
-  }
+  const SUPABASE_URL = "https://skrbznskktophlwdfkci.supabase.co";
+  const SUPABASE_ANON_KEY = "sb_publishable_cEp3tBod3WgWo0k543WG6g_qJcKWgJB";
 
   let sb = null;
   function client() {
     if (sb) return sb;
-    const cfg = getConfig();
-    if (!cfg) return null;
     if (!window.supabase || !window.supabase.createClient) {
       throw new Error("Biblioteca do Supabase não carregou. Confira sua conexão com a internet e recarregue a página.");
     }
-    sb = window.supabase.createClient(cfg.url, cfg.anonKey);
+    sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     return sb;
+  }
+
+  /* ============================= AUTH ============================= */
+  let currentUser = null;
+
+  async function signInWithGoogle() {
+    const { error } = await client().auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: location.origin + location.pathname },
+    });
+    if (error) throw error;
+  }
+
+  async function signOut() {
+    await client().auth.signOut();
   }
 
   /* ============================= UTIL ============================= */
@@ -296,7 +303,10 @@
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("sw.js").catch(() => {});
     }
-    render();
+    client().auth.onAuthStateChange((_event, session) => {
+      currentUser = session ? session.user : null;
+      render();
+    });
   });
 
   function route() {
@@ -306,12 +316,28 @@
     return { name: "home" };
   }
 
-  async function render() {
-    if (!getConfig()) { renderSettings(true); return; }
+  function render() {
+    if (!currentUser) { renderLogin(); return; }
     const r = route();
-    if (r.name === "settings") return renderSettings(false);
+    if (r.name === "settings") return renderSettings();
     if (r.name === "detail") return renderDetail(r.id);
     return renderHome();
+  }
+
+  function renderLogin() {
+    $app.innerHTML = `
+      <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:85vh; padding:24px; text-align:center;">
+        <div style="font-size:48px; margin-bottom:12px;">✅</div>
+        <div style="font-size:22px; font-weight:700; margin-bottom:8px;">Hábitos</div>
+        <p class="help-text" style="margin-bottom:24px;">Entre com sua conta Google pra ver e marcar seus hábitos.</p>
+        <button class="btn btn-primary" id="google-login" style="flex:none; padding:14px 28px;">Continuar com Google</button>
+        <p class="help-text" id="login-error" style="color:var(--critical); margin-top:16px;"></p>
+      </div>
+    `;
+    document.getElementById("google-login").onclick = async () => {
+      try { await signInWithGoogle(); }
+      catch (e) { document.getElementById("login-error").textContent = "Erro: " + e.message; }
+    };
   }
 
   /* ============================= DATA ACCESS ============================= */
@@ -360,7 +386,7 @@
 
   async function toggleLog(habitId, dateStr, done) {
     if (done) {
-      await client().from("habit_logs").insert({ habit_id: habitId, log_date: dateStr });
+      await client().from("habit_logs").insert({ habit_id: habitId, log_date: dateStr, user_id: currentUser.id });
     } else {
       await client().from("habit_logs").delete().eq("habit_id", habitId).eq("log_date", dateStr);
     }
@@ -371,7 +397,7 @@
       .from("habits").select("id", { count: "exact", head: true }).eq("archived", false);
     const { data, error } = await client()
       .from("habits")
-      .insert({ name, emoji: emoji || "✅", target_per_week: targetPerWeek || 7, color: color || DEFAULT_COLOR, sort_order: count || 0 })
+      .insert({ name, emoji: emoji || "✅", target_per_week: targetPerWeek || 7, color: color || DEFAULT_COLOR, sort_order: count || 0, user_id: currentUser.id })
       .select().single();
     if (error) throw error;
     return data;
@@ -902,39 +928,22 @@
   }
 
   /* ============================= SETTINGS ============================= */
-  function renderSettings(firstRun) {
-    const cfg = getConfig() || { url: "", anonKey: "" };
+  function renderSettings() {
     $app.innerHTML = `
-      ${firstRun ? "" : `<button class="back-btn" onclick="location.hash='#/'">‹ Voltar</button>`}
-      <header class="topbar"><div class="title">${firstRun ? "Configurar Supabase" : "Configurações"}</div></header>
+      <button class="back-btn" onclick="location.hash='#/'">‹ Voltar</button>
+      <header class="topbar"><div class="title">Configurações</div></header>
       <div class="card" style="padding:16px;">
-        ${firstRun ? `<p class="help-text" style="margin-top:0;">Pra guardar seus hábitos, esse app usa um projeto Supabase seu. Rode o <code>supabase_schema.sql</code> no SQL Editor do seu projeto e cole abaixo a URL e a anon key (Project Settings → API).</p>` : ""}
-        <div class="field">
-          <label>Project URL</label>
-          <input id="s-url" placeholder="https://xxxx.supabase.co" value="${escapeHtml(cfg.url)}" />
-        </div>
-        <div class="field">
-          <label>anon public key</label>
-          <input id="s-key" placeholder="eyJhbGciOi..." value="${escapeHtml(cfg.anonKey)}" />
-        </div>
-        <button class="btn btn-primary" style="width:100%" id="s-save">Salvar e continuar</button>
-        <p class="help-text">Isso fica salvo só neste iPhone (localStorage do Safari), não em código.</p>
+        <div class="help-text" style="margin-top:0;">Conectado como <b style="color:var(--text-primary);">${escapeHtml(currentUser.email || "")}</b></div>
+        <button class="btn btn-secondary" style="width:100%; margin-top:12px;" id="s-logout">Sair</button>
       </div>
-      ${firstRun ? "" : `
-        <div class="section-title">Hábitos arquivados</div>
-        <div class="card" id="archived-box" style="padding:8px;">Carregando…</div>
-      `}
+      <div class="section-title">Hábitos arquivados</div>
+      <div class="card" id="archived-box" style="padding:8px;">Carregando…</div>
     `;
-    document.getElementById("s-save").onclick = () => {
-      const url = document.getElementById("s-url").value.trim();
-      const anonKey = document.getElementById("s-key").value.trim();
-      if (!url || !anonKey) { alert("Preenche os dois campos."); return; }
-      setConfig(url, anonKey);
-      sb = null;
-      location.hash = "#/";
-      render();
+    document.getElementById("s-logout").onclick = async () => {
+      try { await signOut(); }
+      catch (e) { alert("Não deu pra sair: " + e.message); }
     };
-    if (!firstRun) loadArchivedList();
+    loadArchivedList();
   }
 
   async function loadArchivedList() {
