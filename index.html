@@ -271,7 +271,11 @@
     background: var(--surface-2); border: 1px solid var(--border);
     display: flex; align-items: center; justify-content: center; position: relative;
   }
-  .player-frame img { width: 100%; height: 100%; object-fit: cover; }
+  .player-frame .frame-img {
+    position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+    opacity: 0; transition: opacity 260ms ease;
+  }
+  .player-frame .frame-img.visible { opacity: 1; }
   .player-frame .empty { color: var(--text-muted); font-size: 13px; text-align: center; padding: 20px; }
   .player-frame .date-badge {
     position: absolute; top: 10px; left: 10px; font-size: 12px; font-weight: 600;
@@ -1334,11 +1338,41 @@
       return;
     }
 
-    const urls = await Promise.all(frames.map(f => getSignedUrl(f[`photo_${playerAngle}`])));
+    frameEl.innerHTML = `
+      <img class="frame-img frame-a" />
+      <img class="frame-img frame-b" />
+      <div class="date-badge" id="frame-date"></div>
+    `;
+    const imgA = frameEl.querySelector(".frame-a");
+    const imgB = frameEl.querySelector(".frame-b");
+    const dateEl = document.getElementById("frame-date");
 
+    const urls = await Promise.all(frames.map(f => getSignedUrl(f[`photo_${playerAngle}`])));
+    // pré-carrega tudo antes de começar, pra não travar na primeira passada
+    await Promise.all(urls.map(u => new Promise(res => {
+      const img = new Image();
+      img.onload = res; img.onerror = res;
+      img.src = u;
+    })));
+
+    function fadeMs() {
+      return Math.max(120, Math.min(380, (1000 / playerFps) * 0.6));
+    }
+
+    let frontIsA = false; // nenhuma visível ainda
     function paint() {
+      if (!document.body.contains(frameEl)) return;
       const i = playerFrameIndex % frames.length;
-      frameEl.innerHTML = `<img src="${urls[i]}" /><div class="date-badge">${escapeHtml(fmtLong(strToDate(frames[i].checkin_date)))}</div>`;
+      const showImg = frontIsA ? imgB : imgA;
+      const hideImg = frontIsA ? imgA : imgB;
+      const ms = fadeMs();
+      showImg.style.transitionDuration = ms + "ms";
+      hideImg.style.transitionDuration = ms + "ms";
+      showImg.src = urls[i];
+      showImg.classList.add("visible");
+      hideImg.classList.remove("visible");
+      frontIsA = !frontIsA;
+      dateEl.textContent = fmtLong(strToDate(frames[i].checkin_date));
     }
     paint();
 
