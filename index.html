@@ -281,6 +281,11 @@
     position: absolute; top: 10px; left: 10px; font-size: 12px; font-weight: 600;
     background: rgba(0,0,0,0.55); color: #fff; padding: 3px 9px; border-radius: 999px;
   }
+  .player-frame .metric-badge {
+    position: absolute; top: 10px; right: 10px; font-size: 15px; font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    background: rgba(0,0,0,0.55); color: #fff; padding: 4px 10px; border-radius: 999px;
+  }
   .player-controls { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
   .player-controls .icon-btn { flex-shrink: 0; }
   .player-controls input[type="range"] { flex: 1; }
@@ -1409,10 +1414,12 @@
       <img class="frame-img frame-a" />
       <img class="frame-img frame-b" />
       <div class="date-badge" id="frame-date"></div>
+      <div class="metric-badge" id="frame-metric"></div>
     `;
     const imgA = frameEl.querySelector(".frame-a");
     const imgB = frameEl.querySelector(".frame-b");
     const dateEl = document.getElementById("frame-date");
+    const metricEl = document.getElementById("frame-metric");
 
     const urls = await Promise.all(frames.map(f => getSignedUrl(f[`photo_${playerAngle}`])));
     // pré-carrega tudo antes de começar, pra não travar na primeira passada
@@ -1440,6 +1447,9 @@
       hideImg.classList.remove("visible");
       frontIsA = !frontIsA;
       dateEl.textContent = fmtLong(strToDate(frames[i].checkin_date));
+      const fat = frames[i].body_fat_pct;
+      metricEl.textContent = fat != null ? `${fat}%` : "";
+      metricEl.style.visibility = fat != null ? "visible" : "hidden";
     }
     paint();
 
