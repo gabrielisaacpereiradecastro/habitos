@@ -1117,6 +1117,53 @@
   }
 
   /* ============================= FOTOS ============================= */
+
+  // gráfico de linha genérico pra peso / % gordura ao longo do tempo
+  function drawMetricChart(container, points, unit) {
+    if (!points.length) { container.innerHTML = ""; return; }
+    const values = points.map(p => p.value);
+    const min = Math.min(...values), max = Math.max(...values);
+    const pad = (max - min) * 0.15 || 1;
+    const lo = min - pad, hi = max + pad;
+
+    const w = 320, h = 130, padL = 34, padR = 8, padT = 10, padB = 20;
+    const plotW = w - padL - padR, plotH = h - padT - padB;
+    const xFor = (i) => points.length === 1 ? padL + plotW / 2 : padL + (i / (points.length - 1)) * plotW;
+    const yFor = (v) => padT + plotH - ((v - lo) / (hi - lo)) * plotH;
+
+    let grid = "";
+    [lo, (lo + hi) / 2, hi].forEach(v => {
+      const y = yFor(v);
+      grid += `<line x1="${padL}" y1="${y}" x2="${w - padR}" y2="${y}" stroke="var(--gridline)" stroke-width="1" />`;
+      grid += `<text x="0" y="${y + 3}" font-size="9" fill="var(--text-muted)">${v.toFixed(1)}</text>`;
+    });
+
+    let path = "";
+    let dots = "";
+    points.forEach((p, i) => {
+      const x = xFor(i), y = yFor(p.value);
+      path += (path === "" ? "M" : " L") + x.toFixed(1) + " " + y.toFixed(1);
+      dots += `<circle cx="${x}" cy="${y}" r="3" fill="var(--series-1)" />`;
+    });
+
+    const firstLabel = fmtShort(strToDate(points[0].date));
+    const lastLabel = fmtShort(strToDate(points[points.length - 1].date));
+    const latest = points[points.length - 1].value;
+    const delta = points.length > 1 ? latest - points[0].value : 0;
+    const deltaStr = points.length > 1 ? `${delta >= 0 ? "+" : ""}${delta.toFixed(1)}${unit} desde o início` : "";
+
+    container.innerHTML = `
+      <svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">
+        ${grid}
+        <path d="${path}" fill="none" stroke="var(--series-1)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+        ${dots}
+        <text x="${padL}" y="${h - 4}" font-size="9" fill="var(--text-muted)">${firstLabel}</text>
+        <text x="${w - padR}" y="${h - 4}" font-size="9" fill="var(--text-muted)" text-anchor="end">${lastLabel}</text>
+      </svg>
+      <div class="tooltip-line"><b>${latest}${unit}</b> atual${deltaStr ? ` · ${escapeHtml(deltaStr)}` : ""}</div>
+    `;
+  }
+
   async function renderPhotos() {
     $app.innerHTML = `
       <button class="back-btn" onclick="location.hash='#/'">‹ Voltar</button>
@@ -1124,6 +1171,8 @@
         <div class="title">Fotos</div>
         <button class="icon-btn" onclick="location.hash='#/photos/player'" title="Ver evolução">▶️</button>
       </header>
+      <div id="charts-box"></div>
+      <div class="section-title">Registros</div>
       <div id="checkins-list">Carregando…</div>
       <button class="fab" id="add-checkin-fab">+</button>
     `;
@@ -1138,6 +1187,24 @@
       list.innerHTML = `<div class="empty-state"><div class="big">📷</div>
         Nenhum registro ainda.<br/>Toque no + pra adicionar fotos e medidas.</div>`;
       return;
+    }
+
+    const weightPoints = checkins.filter(c => c.weight_kg != null)
+      .map(c => ({ date: c.checkin_date, value: Number(c.weight_kg) }))
+      .sort((a, b) => a.date < b.date ? -1 : 1);
+    const fatPoints = checkins.filter(c => c.body_fat_pct != null)
+      .map(c => ({ date: c.checkin_date, value: Number(c.body_fat_pct) }))
+      .sort((a, b) => a.date < b.date ? -1 : 1);
+
+    const chartsBox = document.getElementById("charts-box");
+    if (weightPoints.length || fatPoints.length) {
+      chartsBox.innerHTML = `
+        <div class="section-title" style="margin-top:2px;">Evolução</div>
+        ${weightPoints.length ? `<div class="card viz-card" style="margin-bottom:10px;"><div style="font-size:12.5px; color:var(--text-secondary); margin-bottom:6px;">Peso</div><div id="weight-chart"></div></div>` : ""}
+        ${fatPoints.length ? `<div class="card viz-card"><div style="font-size:12.5px; color:var(--text-secondary); margin-bottom:6px;">% de gordura</div><div id="fat-chart"></div></div>` : ""}
+      `;
+      if (weightPoints.length) drawMetricChart(document.getElementById("weight-chart"), weightPoints, " kg");
+      if (fatPoints.length) drawMetricChart(document.getElementById("fat-chart"), fatPoints, "%");
     }
 
     list.innerHTML = checkins.map(c => {
