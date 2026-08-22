@@ -1447,9 +1447,11 @@
       hideImg.classList.remove("visible");
       frontIsA = !frontIsA;
       dateEl.textContent = fmtLong(strToDate(frames[i].checkin_date));
-      const fat = frames[i].body_fat_pct;
-      metricEl.textContent = fat != null ? `${fat}%` : "";
-      metricEl.style.visibility = fat != null ? "visible" : "hidden";
+      const metricParts = [];
+      if (frames[i].weight_kg != null) metricParts.push(`${frames[i].weight_kg}kg`);
+      if (frames[i].body_fat_pct != null) metricParts.push(`${frames[i].body_fat_pct}%`);
+      metricEl.textContent = metricParts.join(" · ");
+      metricEl.style.visibility = metricParts.length ? "visible" : "hidden";
     }
     paint();
 
