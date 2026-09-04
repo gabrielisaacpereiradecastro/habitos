@@ -502,10 +502,10 @@
   /* ============================= BODY CHECKINS (fotos) ============================= */
   const PHOTO_BUCKET = "body-photos";
   const ANGLES = [
-    { key: "front", label: "Frente", guide: "frontal" },
-    { key: "back", label: "Costas", guide: "frontal" },
-    { key: "left", label: "Esquerda", guide: "perfil" },
-    { key: "right", label: "Direita", guide: "perfil" },
+    { key: "front", label: "Frente" },
+    { key: "back", label: "Costas" },
+    { key: "left", label: "Esquerda" },
+    { key: "right", label: "Direita" },
   ];
 
   // fotos já chegam prontas (recortadas/redimensionadas) do ajustador de enquadramento
@@ -1255,25 +1255,19 @@
     });
   }
 
-  /* ---------- ajuste de enquadramento (pinça pra zoom/arrastar + guia de corpo) ---------- */
+  /* ---------- ajuste de enquadramento (pinça pra zoom/arrastar + linhas-guia) ---------- */
   const OUTPUT_W = 1080, OUTPUT_H = 1440;
-  // viewBox 300x400 (proporção 3:4, igual ao quadro da foto) — corpo com ~8 cabeças de
-  // altura (referência clássica de proporção humana), ocupando quase todo o quadro
-  const SILHOUETTE_SHAPES = {
-    frontal: `
-      <circle cx="150" cy="42" r="28"/>
-      <path d="M95,76 Q150,64 205,76 L178,168 L188,195 Q150,206 112,195 L122,168 Z"/>
-      <rect x="112" y="195" width="34" height="193" rx="16"/>
-      <rect x="154" y="195" width="34" height="193" rx="16"/>
-    `,
-    perfil: `
-      <circle cx="163" cy="42" r="28"/>
-      <path d="M138,74 Q190,88 185,150 L188,195 L138,195 Q130,150 133,110 Q134,90 138,74 Z"/>
-      <rect x="133" y="195" width="52" height="193" rx="22"/>
-    `,
-  };
+  // guia por linhas em vez de silhueta: só alinhar topo da cabeça e pés já garante a
+  // mesma escala em toda foto (o zoom é sempre uniforme), sem precisar bater largura
+  const GUIDE_SVG = `
+    <line x1="0" y1="34" x2="300" y2="34" stroke="rgba(255,255,255,0.9)" stroke-width="2" stroke-dasharray="7,7"/>
+    <line x1="0" y1="378" x2="300" y2="378" stroke="rgba(255,255,255,0.9)" stroke-width="2" stroke-dasharray="7,7"/>
+    <line x1="150" y1="0" x2="150" y2="400" stroke="rgba(255,255,255,0.5)" stroke-width="1.5" stroke-dasharray="3,9"/>
+    <text x="10" y="26" font-size="15" font-weight="700" fill="#fff" stroke="#000" stroke-width="3" paint-order="stroke">topo da cabeça</text>
+    <text x="10" y="372" font-size="15" font-weight="700" fill="#fff" stroke="#000" stroke-width="3" paint-order="stroke">pés</text>
+  `;
 
-  function openPhotoAdjuster({ imageUrl, guideType, onSave }) {
+  function openPhotoAdjuster({ imageUrl, onSave }) {
     const overlay = document.createElement("div");
     overlay.className = "adjuster-overlay";
     overlay.innerHTML = `
@@ -1284,18 +1278,9 @@
       </div>
       <div class="adjuster-viewport" id="adj-viewport">
         <img id="adj-img" src="${imageUrl}" />
-        <svg class="guide" viewBox="0 0 300 400">
-          <defs>
-            <pattern id="adj-hatch" width="8" height="8" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
-              <line x1="0" y1="0" x2="0" y2="8" stroke="rgba(255,255,255,0.55)" stroke-width="2"/>
-            </pattern>
-          </defs>
-          <g fill="url(#adj-hatch)" stroke="rgba(255,255,255,0.85)" stroke-width="2" opacity="0.65">
-            ${SILHOUETTE_SHAPES[guideType]}
-          </g>
-        </svg>
+        <svg class="guide" viewBox="0 0 300 400">${GUIDE_SVG}</svg>
       </div>
-      <div class="adjuster-hint">Belisque pra dar zoom e arraste pra posicionar — encaixe o corpo na silhueta</div>
+      <div class="adjuster-hint">Belisque pra dar zoom e arraste — alinhe o topo da cabeça e os pés nas linhas</div>
       <div class="adjuster-actions">
         <button class="btn btn-secondary" id="adj-cancel2">Cancelar</button>
         <button class="btn btn-primary" id="adj-save">Usar esta foto</button>
@@ -1493,10 +1478,8 @@
         input.value = "";
         if (!file) return;
         const angleKey = input.dataset.angleInput;
-        const guide = ANGLES.find(a => a.key === angleKey).guide;
         openPhotoAdjuster({
           imageUrl: URL.createObjectURL(file),
-          guideType: guide,
           onSave: (blob) => {
             pendingBlobs[angleKey] = blob;
             setSlotThumb(angleKey, URL.createObjectURL(blob));
@@ -1509,10 +1492,8 @@
       slot.onclick = () => {
         const angleKey = slot.dataset.angle;
         if (previewUrls[angleKey]) {
-          const guide = ANGLES.find(a => a.key === angleKey).guide;
           openPhotoAdjuster({
             imageUrl: previewUrls[angleKey],
-            guideType: guide,
             onSave: (blob) => {
               pendingBlobs[angleKey] = blob;
               setSlotThumb(angleKey, URL.createObjectURL(blob));
