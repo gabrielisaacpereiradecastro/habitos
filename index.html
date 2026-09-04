@@ -245,6 +245,26 @@
     background: rgba(0,0,0,0.55); color: #fff; padding: 2px 7px; border-radius: 999px;
   }
   .photo-slot input[type="file"] { display: none; }
+  .photo-slot .swap-btn {
+    position: absolute; right: 6px; top: 6px; width: 26px; height: 26px; border-radius: 999px;
+    background: rgba(0,0,0,0.55); color: #fff; border: none; font-size: 13px;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  /* ---------- ajuste de enquadramento ---------- */
+  .adjuster-overlay { position: fixed; inset: 0; background: var(--page); z-index: 60; display: flex; flex-direction: column; }
+  .adjuster-header { display: flex; align-items: center; justify-content: space-between; padding: 16px; }
+  .adjuster-header .title { font-size: 16px; font-weight: 700; }
+  .adjuster-viewport {
+    position: relative; width: min(92vw, 340px); aspect-ratio: 3/4; margin: 0 auto;
+    border-radius: 16px; overflow: hidden; background: #000; touch-action: none;
+  }
+  .adjuster-viewport img {
+    position: absolute; will-change: transform; user-select: none; -webkit-user-drag: none;
+  }
+  .adjuster-viewport svg.guide { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .adjuster-hint { text-align: center; color: var(--text-secondary); font-size: 12.5px; margin: 14px 0; }
+  .adjuster-actions { margin-top: auto; padding: 16px; display: flex; gap: 10px; }
 
   .checkin-row { padding: 12px 14px; margin-bottom: 10px; }
   .checkin-row .head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
@@ -482,35 +502,14 @@
   /* ============================= BODY CHECKINS (fotos) ============================= */
   const PHOTO_BUCKET = "body-photos";
   const ANGLES = [
-    { key: "front", label: "Frente" },
-    { key: "back", label: "Costas" },
-    { key: "left", label: "Esquerda" },
-    { key: "right", label: "Direita" },
+    { key: "front", label: "Frente", guide: "frontal" },
+    { key: "back", label: "Costas", guide: "frontal" },
+    { key: "left", label: "Esquerda", guide: "perfil" },
+    { key: "right", label: "Direita", guide: "perfil" },
   ];
 
-  // redimensiona pro lado maior ter no máx 1080px antes de subir, economiza espaço/banda
-  function compressImage(file) {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      const reader = new FileReader();
-      reader.onload = () => { img.src = reader.result; };
-      reader.onerror = reject;
-      img.onload = () => {
-        const maxSide = 1080;
-        const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
-        const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
-        const canvas = document.createElement("canvas");
-        canvas.width = w; canvas.height = h;
-        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
-        canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("Falha ao comprimir imagem")), "image/jpeg", 0.82);
-      };
-      img.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-  }
-
-  async function uploadCheckinPhoto(dateStr, angleKey, file) {
-    const blob = await compressImage(file);
+  // fotos já chegam prontas (recortadas/redimensionadas) do ajustador de enquadramento
+  async function uploadCheckinPhoto(dateStr, angleKey, blob) {
     const path = `${currentUser.id}/${dateStr}/${angleKey}.jpg`;
     const { error } = await client().storage.from(PHOTO_BUCKET)
       .upload(path, blob, { upsert: true, contentType: "image/jpeg" });
@@ -1256,11 +1255,173 @@
     });
   }
 
+  /* ---------- ajuste de enquadramento (pinça pra zoom/arrastar + guia de corpo) ---------- */
+  const OUTPUT_W = 1080, OUTPUT_H = 1440;
+  const SILHOUETTE_SHAPES = {
+    frontal: `
+      <circle cx="100" cy="46" r="30"/>
+      <path d="M55,88 Q100,78 145,88 L136,196 Q100,208 64,196 Z"/>
+      <rect x="63" y="196" width="30" height="178" rx="14"/>
+      <rect x="107" y="196" width="30" height="178" rx="14"/>
+    `,
+    perfil: `
+      <circle cx="112" cy="46" r="30"/>
+      <path d="M88,80 Q128,90 130,120 L122,196 Q114,208 96,206 L90,196 Z"/>
+      <rect x="90" y="196" width="34" height="178" rx="16"/>
+    `,
+  };
+
+  function openPhotoAdjuster({ imageUrl, guideType, onSave }) {
+    const overlay = document.createElement("div");
+    overlay.className = "adjuster-overlay";
+    overlay.innerHTML = `
+      <div class="adjuster-header">
+        <button class="back-btn" id="adj-cancel" style="padding:0;">‹ Cancelar</button>
+        <div class="title">Ajustar enquadramento</div>
+        <button class="icon-btn" id="adj-reset" title="Repor">↺</button>
+      </div>
+      <div class="adjuster-viewport" id="adj-viewport">
+        <img id="adj-img" src="${imageUrl}" />
+        <svg class="guide" viewBox="0 0 200 400">
+          <defs>
+            <pattern id="adj-hatch" width="8" height="8" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+              <line x1="0" y1="0" x2="0" y2="8" stroke="rgba(255,255,255,0.55)" stroke-width="2"/>
+            </pattern>
+          </defs>
+          <g fill="url(#adj-hatch)" stroke="rgba(255,255,255,0.85)" stroke-width="2" opacity="0.65">
+            ${SILHOUETTE_SHAPES[guideType]}
+          </g>
+        </svg>
+      </div>
+      <div class="adjuster-hint">Belisque pra dar zoom e arraste pra posicionar — encaixe o corpo na silhueta</div>
+      <div class="adjuster-actions">
+        <button class="btn btn-secondary" id="adj-cancel2">Cancelar</button>
+        <button class="btn btn-primary" id="adj-save">Usar esta foto</button>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const viewport = document.getElementById("adj-viewport");
+    const img = document.getElementById("adj-img");
+    const closeAdjuster = () => overlay.remove();
+    document.getElementById("adj-cancel").onclick = closeAdjuster;
+    document.getElementById("adj-cancel2").onclick = closeAdjuster;
+
+    let natW, natH, baseScale, dispW, dispH, baseLeft, baseTop, viewportW, viewportH;
+    let scale = 1, tx = 0, ty = 0;
+
+    function applyTransform() {
+      img.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+    }
+
+    function clampTransform() {
+      const totalScale = baseScale * scale;
+      const finalW = natW * totalScale, finalH = natH * totalScale;
+      let finalLeft = baseLeft + dispW / 2 - finalW / 2 + tx;
+      let finalTop = baseTop + dispH / 2 - finalH / 2 + ty;
+      const minLeft = Math.min(0, viewportW - finalW), maxLeft = Math.max(0, viewportW - finalW);
+      const minTop = Math.min(0, viewportH - finalH), maxTop = Math.max(0, viewportH - finalH);
+      finalLeft = Math.min(maxLeft, Math.max(minLeft, finalLeft));
+      finalTop = Math.min(maxTop, Math.max(minTop, finalTop));
+      tx = finalLeft - baseLeft - dispW / 2 + finalW / 2;
+      ty = finalTop - baseTop - dispH / 2 + finalH / 2;
+    }
+
+    function setup() {
+      const rect = viewport.getBoundingClientRect();
+      viewportW = rect.width; viewportH = rect.height;
+      natW = img.naturalWidth; natH = img.naturalHeight;
+      baseScale = Math.max(viewportW / natW, viewportH / natH);
+      dispW = natW * baseScale; dispH = natH * baseScale;
+      baseLeft = (viewportW - dispW) / 2; baseTop = (viewportH - dispH) / 2;
+      img.style.width = dispW + "px";
+      img.style.height = dispH + "px";
+      img.style.left = baseLeft + "px";
+      img.style.top = baseTop + "px";
+      scale = 1; tx = 0; ty = 0;
+      applyTransform();
+    }
+    if (img.complete && img.naturalWidth) setup();
+    else img.onload = setup;
+
+    document.getElementById("adj-reset").onclick = () => { setup(); };
+
+    // pinça (2 dedos) pra zoom, arrastar (1 dedo) pra posicionar
+    const activePointers = new Map();
+    let gestureStart = null;
+
+    function dist() {
+      const p = [...activePointers.values()];
+      return Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y);
+    }
+    function midpoint() {
+      const p = [...activePointers.values()];
+      return { x: (p[0].x + p[1].x) / 2, y: (p[0].y + p[1].y) / 2 };
+    }
+    function resetGesture() {
+      if (activePointers.size === 1) {
+        const p = [...activePointers.values()][0];
+        gestureStart = { mode: "pan", tx, ty, x: p.x, y: p.y };
+      } else if (activePointers.size === 2) {
+        const m = midpoint();
+        gestureStart = { mode: "pinch", scale, tx, ty, dist: dist(), midX: m.x, midY: m.y };
+      } else {
+        gestureStart = null;
+      }
+    }
+    viewport.addEventListener("pointerdown", (e) => {
+      viewport.setPointerCapture(e.pointerId);
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      resetGesture();
+    });
+    viewport.addEventListener("pointermove", (e) => {
+      if (!activePointers.has(e.pointerId) || !gestureStart) return;
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (gestureStart.mode === "pan" && activePointers.size === 1) {
+        const p = [...activePointers.values()][0];
+        tx = gestureStart.tx + (p.x - gestureStart.x);
+        ty = gestureStart.ty + (p.y - gestureStart.y);
+      } else if (gestureStart.mode === "pinch" && activePointers.size === 2) {
+        const d = dist(), m = midpoint();
+        scale = Math.min(4, Math.max(1, gestureStart.scale * (d / gestureStart.dist)));
+        tx = gestureStart.tx + (m.x - gestureStart.midX);
+        ty = gestureStart.ty + (m.y - gestureStart.midY);
+      } else return;
+      clampTransform();
+      applyTransform();
+    });
+    function endPointer(e) {
+      activePointers.delete(e.pointerId);
+      resetGesture();
+    }
+    viewport.addEventListener("pointerup", endPointer);
+    viewport.addEventListener("pointercancel", endPointer);
+    viewport.addEventListener("pointerleave", endPointer);
+
+    document.getElementById("adj-save").onclick = () => {
+      const totalScale = baseScale * scale;
+      const finalW = natW * totalScale, finalH = natH * totalScale;
+      const finalLeft = baseLeft + dispW / 2 - finalW / 2 + tx;
+      const finalTop = baseTop + dispH / 2 - finalH / 2 + ty;
+      const sx = -finalLeft / totalScale, sy = -finalTop / totalScale;
+      const sw = viewportW / totalScale, sh = viewportH / totalScale;
+      const canvas = document.createElement("canvas");
+      canvas.width = OUTPUT_W; canvas.height = OUTPUT_H;
+      canvas.getContext("2d").drawImage(img, sx, sy, sw, sh, 0, 0, OUTPUT_W, OUTPUT_H);
+      canvas.toBlob((blob) => {
+        if (!blob) { alert("Não deu pra processar a foto."); return; }
+        onSave(blob);
+        closeAdjuster();
+      }, "image/jpeg", 0.85);
+    };
+  }
+
   function openCheckinModal(checkin) {
     const isEdit = !!checkin;
     const dateVal = checkin ? checkin.checkin_date : todayStr();
-    const pendingFiles = {};
-    const existingPaths = {};
+    const pendingBlobs = {}; // angleKey -> Blob já ajustado, pronto pra subir
+    const existingPaths = {}; // angleKey -> path já salvo no Storage (não tocado nesta sessão)
+    const previewUrls = {}; // angleKey -> URL atual mostrada na miniatura (signed URL ou object URL local)
     ANGLES.forEach(a => { existingPaths[a.key] = checkin ? (checkin[`photo_${a.key}`] || null) : null; });
 
     const overlay = document.createElement("div");
@@ -1274,11 +1435,11 @@
         </div>
         <div class="photo-grid" id="ck-photo-grid" style="margin-bottom:14px;">
           ${ANGLES.map(a => `
-            <label class="photo-slot" data-angle="${a.key}">
+            <div class="photo-slot" data-angle="${a.key}">
               <div class="placeholder">+ ${a.label}</div>
               <div class="angle-label">${a.label}</div>
               <input type="file" accept="image/*" data-angle-input="${a.key}" />
-            </label>
+            </div>
           `).join("")}
         </div>
         <div style="display:flex; gap:10px;">
@@ -1301,27 +1462,63 @@
     overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
     document.getElementById("ck-cancel").onclick = () => overlay.remove();
 
+    function setSlotThumb(angleKey, url) {
+      previewUrls[angleKey] = url;
+      const slot = overlay.querySelector(`.photo-slot[data-angle="${angleKey}"]`);
+      if (!slot) return;
+      const existingImg = slot.querySelector("img");
+      const placeholder = slot.querySelector(".placeholder");
+      if (existingImg) existingImg.src = url;
+      else if (placeholder) placeholder.outerHTML = `<img src="${url}" />`;
+      if (!slot.querySelector(".swap-btn")) {
+        slot.insertAdjacentHTML("beforeend", `<button type="button" class="swap-btn" data-swap="${angleKey}" title="Trocar foto">🔄</button>`);
+        slot.querySelector(`[data-swap="${angleKey}"]`).onclick = (e) => {
+          e.stopPropagation();
+          overlay.querySelector(`input[data-angle-input="${angleKey}"]`).click();
+        };
+      }
+    }
+
     ANGLES.forEach((a) => {
       const path = existingPaths[a.key];
       if (!path) return;
-      getSignedUrl(path).then(url => {
-        const slot = overlay.querySelector(`.photo-slot[data-angle="${a.key}"]`);
-        const ph = slot && slot.querySelector(".placeholder");
-        if (ph) ph.outerHTML = `<img src="${url}" />`;
-      }).catch(() => {});
+      getSignedUrl(path).then(url => setSlotThumb(a.key, url)).catch(() => {});
     });
 
     overlay.querySelectorAll("[data-angle-input]").forEach(input => {
       input.onchange = () => {
         const file = input.files[0];
+        input.value = "";
         if (!file) return;
-        pendingFiles[input.dataset.angleInput] = file;
-        const slot = input.closest(".photo-slot");
-        const url = URL.createObjectURL(file);
-        const existingImg = slot.querySelector("img");
-        const placeholder = slot.querySelector(".placeholder");
-        if (existingImg) existingImg.src = url;
-        else if (placeholder) placeholder.outerHTML = `<img src="${url}" />`;
+        const angleKey = input.dataset.angleInput;
+        const guide = ANGLES.find(a => a.key === angleKey).guide;
+        openPhotoAdjuster({
+          imageUrl: URL.createObjectURL(file),
+          guideType: guide,
+          onSave: (blob) => {
+            pendingBlobs[angleKey] = blob;
+            setSlotThumb(angleKey, URL.createObjectURL(blob));
+          },
+        });
+      };
+    });
+
+    overlay.querySelectorAll(".photo-slot").forEach(slot => {
+      slot.onclick = () => {
+        const angleKey = slot.dataset.angle;
+        if (previewUrls[angleKey]) {
+          const guide = ANGLES.find(a => a.key === angleKey).guide;
+          openPhotoAdjuster({
+            imageUrl: previewUrls[angleKey],
+            guideType: guide,
+            onSave: (blob) => {
+              pendingBlobs[angleKey] = blob;
+              setSlotThumb(angleKey, URL.createObjectURL(blob));
+            },
+          });
+        } else {
+          overlay.querySelector(`input[data-angle-input="${angleKey}"]`).click();
+        }
       };
     });
 
@@ -1330,7 +1527,7 @@
       if (!dateStr) { alert("Escolhe uma data."); return; }
       const weightVal = document.getElementById("ck-weight").value.trim();
       const fatVal = document.getElementById("ck-fat").value.trim();
-      const hasAnyPhoto = ANGLES.some(a => pendingFiles[a.key] || existingPaths[a.key]);
+      const hasAnyPhoto = ANGLES.some(a => pendingBlobs[a.key] || existingPaths[a.key]);
       if (!hasAnyPhoto) { alert("Adiciona pelo menos uma foto."); return; }
 
       const saveBtn = document.getElementById("ck-save");
@@ -1341,7 +1538,7 @@
           body_fat_pct: fatVal ? Number(fatVal) : null,
         };
         for (const a of ANGLES) {
-          if (pendingFiles[a.key]) fields[`photo_${a.key}`] = await uploadCheckinPhoto(dateStr, a.key, pendingFiles[a.key]);
+          if (pendingBlobs[a.key]) fields[`photo_${a.key}`] = await uploadCheckinPhoto(dateStr, a.key, pendingBlobs[a.key]);
           else if (existingPaths[a.key]) fields[`photo_${a.key}`] = existingPaths[a.key];
         }
         await upsertCheckin(dateStr, fields);
