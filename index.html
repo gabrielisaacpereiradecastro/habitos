@@ -1257,18 +1257,17 @@
 
   /* ---------- ajuste de enquadramento (pinça pra zoom/arrastar + linhas-guia) ---------- */
   const OUTPUT_W = 1080, OUTPUT_H = 1440;
-  // guia por linhas em vez de silhueta: alinhar topo da cabeça + mais uma linha já garante
-  // a mesma escala em toda foto (o zoom é sempre uniforme), sem precisar bater largura.
-  // 3 linhas (cabeça/mamilo/cintura) em vez de só 2 dá mais pontos de referência pra
-  // conferir o alinhamento, já que pés raramente aparecem nesse tipo de foto
+  // exatamente 2 linhas, de propósito: com zoom uniforme só existem 2 graus de liberdade
+  // (tamanho + posição), então só dá pra garantir encaixe perfeito em 2 pontos — uma 3ª
+  // linha vira "cabo de guerra" porque a proporção cabeça-mamilo-cintura varia de pessoa
+  // pra pessoa. Mamilo é ponto ósseo/estável, muda pouco com variação de peso ao longo
+  // do tempo — por isso essa dupla em vez de cabeça+cintura
   const GUIDE_SVG = `
     <line x1="0" y1="34" x2="300" y2="34" stroke="rgba(255,255,255,0.9)" stroke-width="2" stroke-dasharray="7,7"/>
     <line x1="0" y1="250" x2="300" y2="250" stroke="rgba(255,255,255,0.9)" stroke-width="2" stroke-dasharray="7,7"/>
-    <line x1="0" y1="320" x2="300" y2="320" stroke="rgba(255,255,255,0.9)" stroke-width="2" stroke-dasharray="7,7"/>
     <line x1="150" y1="0" x2="150" y2="400" stroke="rgba(255,255,255,0.5)" stroke-width="1.5" stroke-dasharray="3,9"/>
     <text x="10" y="26" font-size="15" font-weight="700" fill="#fff" stroke="#000" stroke-width="3" paint-order="stroke">topo da cabeça</text>
     <text x="10" y="244" font-size="15" font-weight="700" fill="#fff" stroke="#000" stroke-width="3" paint-order="stroke">mamilo</text>
-    <text x="10" y="314" font-size="15" font-weight="700" fill="#fff" stroke="#000" stroke-width="3" paint-order="stroke">cintura</text>
   `;
 
   function openPhotoAdjuster({ imageUrl, onSave }) {
@@ -1284,7 +1283,7 @@
         <img id="adj-img" />
         <svg class="guide" viewBox="0 0 300 400">${GUIDE_SVG}</svg>
       </div>
-      <div class="adjuster-hint">Belisque pra dar zoom e arraste — alinhe cabeça, mamilo e cintura nas linhas</div>
+      <div class="adjuster-hint">Belisque pra dar zoom e arraste — alinhe o topo da cabeça e o mamilo nas linhas</div>
       <div class="adjuster-actions">
         <button class="btn btn-secondary" id="adj-cancel2">Cancelar</button>
         <button class="btn btn-primary" id="adj-save">Usar esta foto</button>
