@@ -1257,17 +1257,19 @@
 
   /* ---------- ajuste de enquadramento (pinça pra zoom/arrastar + guia de corpo) ---------- */
   const OUTPUT_W = 1080, OUTPUT_H = 1440;
+  // viewBox 300x400 (proporção 3:4, igual ao quadro da foto) — corpo com ~8 cabeças de
+  // altura (referência clássica de proporção humana), ocupando quase todo o quadro
   const SILHOUETTE_SHAPES = {
     frontal: `
-      <circle cx="100" cy="46" r="30"/>
-      <path d="M55,88 Q100,78 145,88 L136,196 Q100,208 64,196 Z"/>
-      <rect x="63" y="196" width="30" height="178" rx="14"/>
-      <rect x="107" y="196" width="30" height="178" rx="14"/>
+      <circle cx="150" cy="42" r="28"/>
+      <path d="M95,76 Q150,64 205,76 L178,168 L188,195 Q150,206 112,195 L122,168 Z"/>
+      <rect x="112" y="195" width="34" height="193" rx="16"/>
+      <rect x="154" y="195" width="34" height="193" rx="16"/>
     `,
     perfil: `
-      <circle cx="112" cy="46" r="30"/>
-      <path d="M88,80 Q128,90 130,120 L122,196 Q114,208 96,206 L90,196 Z"/>
-      <rect x="90" y="196" width="34" height="178" rx="16"/>
+      <circle cx="163" cy="42" r="28"/>
+      <path d="M138,74 Q190,88 185,150 L188,195 L138,195 Q130,150 133,110 Q134,90 138,74 Z"/>
+      <rect x="133" y="195" width="52" height="193" rx="22"/>
     `,
   };
 
@@ -1282,7 +1284,7 @@
       </div>
       <div class="adjuster-viewport" id="adj-viewport">
         <img id="adj-img" src="${imageUrl}" />
-        <svg class="guide" viewBox="0 0 200 400">
+        <svg class="guide" viewBox="0 0 300 400">
           <defs>
             <pattern id="adj-hatch" width="8" height="8" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
               <line x1="0" y1="0" x2="0" y2="8" stroke="rgba(255,255,255,0.55)" stroke-width="2"/>
