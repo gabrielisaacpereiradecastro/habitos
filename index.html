@@ -1277,7 +1277,7 @@
         <button class="icon-btn" id="adj-reset" title="Repor">↺</button>
       </div>
       <div class="adjuster-viewport" id="adj-viewport">
-        <img id="adj-img" src="${imageUrl}" />
+        <img id="adj-img" />
         <svg class="guide" viewBox="0 0 300 400">${GUIDE_SVG}</svg>
       </div>
       <div class="adjuster-hint">Belisque pra dar zoom e arraste — alinhe o topo da cabeça e os pés nas linhas</div>
@@ -1290,6 +1290,10 @@
 
     const viewport = document.getElementById("adj-viewport");
     const img = document.getElementById("adj-img");
+    // precisa vir antes do src: sem isso, reajustar uma foto já enviada (URL do Supabase,
+    // outra origem) "suja" o canvas e o export no Salvar falha silenciosamente
+    img.crossOrigin = "anonymous";
+    img.src = imageUrl;
     const closeAdjuster = () => overlay.remove();
     document.getElementById("adj-cancel").onclick = closeAdjuster;
     document.getElementById("adj-cancel2").onclick = closeAdjuster;
@@ -1386,20 +1390,24 @@
     viewport.addEventListener("pointerleave", endPointer);
 
     document.getElementById("adj-save").onclick = () => {
-      const totalScale = baseScale * scale;
-      const finalW = natW * totalScale, finalH = natH * totalScale;
-      const finalLeft = baseLeft + dispW / 2 - finalW / 2 + tx;
-      const finalTop = baseTop + dispH / 2 - finalH / 2 + ty;
-      const sx = -finalLeft / totalScale, sy = -finalTop / totalScale;
-      const sw = viewportW / totalScale, sh = viewportH / totalScale;
-      const canvas = document.createElement("canvas");
-      canvas.width = OUTPUT_W; canvas.height = OUTPUT_H;
-      canvas.getContext("2d").drawImage(img, sx, sy, sw, sh, 0, 0, OUTPUT_W, OUTPUT_H);
-      canvas.toBlob((blob) => {
-        if (!blob) { alert("Não deu pra processar a foto."); return; }
-        onSave(blob);
-        closeAdjuster();
-      }, "image/jpeg", 0.85);
+      try {
+        const totalScale = baseScale * scale;
+        const finalW = natW * totalScale, finalH = natH * totalScale;
+        const finalLeft = baseLeft + dispW / 2 - finalW / 2 + tx;
+        const finalTop = baseTop + dispH / 2 - finalH / 2 + ty;
+        const sx = -finalLeft / totalScale, sy = -finalTop / totalScale;
+        const sw = viewportW / totalScale, sh = viewportH / totalScale;
+        const canvas = document.createElement("canvas");
+        canvas.width = OUTPUT_W; canvas.height = OUTPUT_H;
+        canvas.getContext("2d").drawImage(img, sx, sy, sw, sh, 0, 0, OUTPUT_W, OUTPUT_H);
+        canvas.toBlob((blob) => {
+          if (!blob) { alert("Não deu pra processar a foto."); return; }
+          onSave(blob);
+          closeAdjuster();
+        }, "image/jpeg", 0.85);
+      } catch (e) {
+        alert("Não deu pra processar a foto: " + e.message);
+      }
     };
   }
 
